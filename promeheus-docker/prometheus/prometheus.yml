@@ -27,7 +27,41 @@ scrape_configs:
         labels:
           group: 'canary'
 
-  - job_name: 'hostname'
+  - job_name: 'servidores'
     scrape_interval: 10s
     static_configs:
-      - targets: ['IP-Host:9182', 'IP-Host:9182']  # Corrigido para estar em uma linha.
+      - targets: ['192.168.56.104:9182']
+
+  # Blackbox Exporter - Monitoramento do site atacadao.com.br
+  - job_name: 'blackbox'
+    scrape_interval: 10s
+    metrics_path: /probe
+    file_sd_configs:
+      - files:
+        - 'targets/blackbox_targets/*.yml'
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [module]
+        target_label: __param_module
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: localhost:9115  # Endereço do Blackbox Exporter
+
+  # Novo job para monitorar www.atacadao.com.br
+  - job_name: 'atacadao-monitoring'
+    scrape_interval: 30s  # A cada 30 segundos
+    metrics_path: /probe
+    params:
+      module: [http_2xx]  # Usamos o módulo HTTP com resposta 2xx
+    static_configs:
+      - targets:
+        - 'http://www.atacadao.com.br'  # Alvo a ser monitorado
+    relabel_configs:
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: localhost:9115  # Endereço do Blackbox Exporter
+      - target_label: __param_module
+        replacement: http_2xx  # Tipo de verificação (http com resposta 2xx)
