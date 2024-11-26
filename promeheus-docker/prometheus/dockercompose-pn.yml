@@ -1,70 +1,105 @@
-version: '2'
+version: '3'
+
+networks:
+  atacadaonetwork:
+    driver: bridge
+
+volumes:
+  prometheus_data: {}
+  grafana_data: {}
 
 services:
 
-  #NOD-EXPORT   -----------------------------------
+  # NOD-EXPORT -----------------------------------
   node-exporter-local:
     image: quay.io/prometheus/node-exporter
     stdin_open: true
     volumes:
-    - /:/host:ro,rslave
+      - /:/host:ro,rslave
     tty: true
     ports:
-    - 9100:9100/tcp
+      - 9100:9100/tcp
     restart: always
     command:
-    - --path.rootfs=/host
-
-
-
-
-  #PROMETHEUS   -----------------------------------
+      - --path.rootfs=/host
+      networks:
+      - atacadaonetwork
+  # PROMETHEUS -----------------------------------
   prometheus:
     image: prom/prometheus
     stdin_open: true
     volumes:
-    - /var/www/prometheus:/etc/prometheus
+      - /var/www/prometheus:/etc/prometheus
     tty: true
     ports:
-    - 9090:9090/tcp
+      - 9090:9090/tcp
     restart: always    
     command:
-    - --config.file=/etc/prometheus/prometheus.yml
+      - --config.file=/etc/prometheus/prometheus.yml
+          networks:
+      - atacadaonetwork
 
-
-
-
-  #RENDER DO GRAFANA   -----------------------------------
-  renderer:
-    image: grafana/grafana-image-renderer:3.5.0
-    ports:
-    - 3001:8081/tcp  
-    restart: always    
-
-
-
-
-  #GRAFANA -------------------------------------------
-  grafana:
-    image: grafana/grafana:7.5.7
+  # GRAFANA -------------------------------------------
+   grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/datasources:/etc/grafana/datasources
+      - ./grafana/dashboards:/etc/grafana/dashboards
+      - ./grafana/setup.sh:/setup.sh
+    entrypoint: /setup.sh
     environment:
-      GF_LOG_FILTERS: rendering:debug
-      GF_RENDERING_CALLBACK_URL: http://renderer:3000/
-      GF_RENDERING_SERVER_URL: http://renderer:3001/render
-      GF_INSTALL_PLUGINS: grafana-clock-panel,grafana-simple-json-datasource,grafana-image-renderer
-      GF_SECURITY_ADMIN_PASSWORD: admin
-      GF_SECURITY_ADMIN_USER: admin
-      GF_SERVER_HTTP_PORT: '3000'
-      GF_SERVER_PROTOCOL: http
+      - GF_SECURITY_ADMIN_USER=${ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
       #GF_SMTP_ENABLED: 'true'
       #GF_SMTP_HOST: smtp.gmail.com
       #GF_SMTP_USER: seu_email@gmail.com.br
       #GF_SMTP_PASSWORD: xxxxx
-    volumes:
-    - /var/www/grafana:/var/lib/grafana
+    restart: unless-stopped
     ports:
-    - 3000:3000/tcp
-    restart: always  
-    
-    
-   
+      - "3000:3000"
+    networks:
+      - atacadaonetwork
+
+#ALERTMANAGER
+
+  alertmanager:
+    image: prom/alertmanager
+    container_name: alertmanager
+    volumes: 
+      - ./alertmanager/:/etc/alertmanager/
+    command:
+      - '--config.file=/etc/alertmanager/config-email.yml'
+      - '--storage.path=/alertmanager'
+      - '--web.listen-address=0.0.0.0:9093'
+    restart: unless-stopped
+    ports:
+      - "9093:9093"
+    networks:
+      - atacadaonetwork
+
+  # BLACKBOX EXPORTER -----------------------------------
+  blackbox-exporter:
+    image: prom/blackbox-exporter
+    stdin_open: true
+    tty: true
+    ports:
+      - 9115:9115/tcp
+    restart: always
+        networks:
+      - atacadaonetwork
+
+  # SNMP EXPORTER -----------------------------------
+  snmp-exporter:
+    image: quay.io/prometheus/snmp-exporter
+    stdin_open: true
+    tty: true
+    ports:
+      - 9116:9116/tcp
+    restart: always
+    environment:
+      - SNMP_TARGETS=snmp://<ip_do_dispositivo>:161
+    networks:
+      - atacadaonetwork
